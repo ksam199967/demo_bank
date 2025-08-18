@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TCBank Demo</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React Libraries -->
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <!-- Babel to transpile JSX in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        /* Simple font styling */
+        body {
+            font-family: sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-neutral-950">
+    <!-- The root element where the React app will be mounted -->
+    <div id="root"></div>
+
+    <!-- The React application code -->
+    <script type="text/babel">
+        // The entire React component from the previous artifact is placed here.
+        // This allows the browser to run the React app without a build step, thanks to Babel.
+
+        const { useEffect, useMemo, useState, FormEvent } = React;
+
+        /* --------------------------- User Data & Auth --------------------------- */
+        const USERS = [
+            { id: 'u1', name: 'Ramesh Kumar', role: 'Branch Manager', username: 'manager', password: 'Branch@2025' },
+            { id: 'u2', name: 'Sunita Sharma', role: 'Account Manager', username: 'accountant', password: 'Account@2025' },
+        ];
+
+        function LoginScreen({ onLogin }) {
+            const [username, setUsername] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const user = USERS.find(u => u.username === username && u.password === password);
+                if (user) {
+                    setError('');
+                    onLogin(user);
+                } else {
+                    setError('Invalid username or password.');
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-neutral-950 text-neutral-100">
+                    <div className="w-full max-w-md p-8 space-y-6 bg-neutral-900 rounded-2xl border border-neutral-800 shadow-lg">
+                        <div className="text-center">
+                            <div className="flex items-center justify-center gap-3 mb-4">
+                                <div className="h-12 w-12 flex items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 font-bold text-lg">
+                                    <span>TC</span>
+                                </div>
+                                <div className="text-3xl font-semibold tracking-wide">TCBank</div>
+                            </div>
+                            <h2 className="text-xl text-neutral-300">Staff Console Login</h2>
+                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="text-sm font-medium text-neutral-400">Username</label>
+                                <input
+                                    type="text"
+                                    value={username}
+                                    onChange={(e) => setUsername(e.target.value)}
+                                    className="mt-1 w-full rounded-2xl bg-neutral-800/60 border border-neutral-700 px-4 py-3 outline-none focus:ring-2 focus:ring-cyan-500"
+                                    placeholder="Enter username"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium text-neutral-400">Password</label>
+                                <input
+                                    type="password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="mt-1 w-full rounded-2xl bg-neutral-800/60 border border-neutral-700 px-4 py-3 outline-none focus:ring-2 focus:ring-cyan-500"
+                                    placeholder="Enter password"
+                                />
+                            </div>
+                            {error && <p className="text-sm text-red-400 text-center">{error}</p>}
+                            <div>
+                                <PrimaryButton type="submit" fullWidth>Login</PrimaryButton>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
+
+        function App() {
+          const [loggedInUser, setLoggedInUser] = useLocalStorage("tcbank.user", null);
+          const [view, setView] = useState("dashboard"); // "dashboard" | "customers" | "ids"
+          const [customers, setCustomers] = useLocalStorage("tcbank.customers.v2", seedCustomers());
+          const [query, setQuery] = useState("");
+          const [filters, setFilters] = useState({ status: "all", risk: "all" });
+          const [sort, setSort] = useState({ key: "updatedAt", dir: "desc" });
+          const [selected, setSelected] = useState(null);
+          const [showNew, setShowNew] = useState(false);
+
+          useEffect(() => {
+            const isSeeded = localStorage.getItem("tcbank.customers.v2.seeded");
+            if (!isSeeded) {
+              setCustomers(prev =>
+                prev.map((c, i) => ({
+                  ...c,
+                  updatedAt: new Date(Date.now() - i * 3600000 * Math.random()).toISOString(),
+                }))
+              );
+              localStorage.setItem("tcbank.customers.v2.seeded", "true");
+            }
+          }, []);
+
+
+          const filtered = useMemo(() => {
+            let list = [...customers];
+            if (query.trim()) {
+              const q = query.toLowerCase();
+              list = list.filter((c) =>
+                [
+                  c.name,
+                  c.cif,
+                  c.phone,
+                  c.email,
+                  c.pan,
+                  c.aadhaar?.slice(-4),
+                  c.branch,
+                  c.rm,
+                ]
+                  .filter(Boolean)
+                  .some((v) => String(v).toLowerCase().includes(q))
+              );
+            }
+            if (filters.status !== "all") list = list.filter((c) => c.kyc.status === filters.status);
+            if (filters.risk !== "all") list = list.filter((c) => c.risk === filters.risk);
+            list.sort((a, b) => compare(a, b, sort.key, sort.dir));
+            return list;
+          }, [customers, query, filters, sort]);
+
+          const stats = useMemo(() => {
+            const total = customers.length;
+            const verified = customers.filter((c) => c.kyc.status === "verified").length;
+            const pending = customers.filter((c) => c.kyc.status === "pending").length;
+            const highRisk = customers.filter((c) => c.risk === "high").length;
+            return { total, verified, pending, highRisk };
+          }, [customers]);
+          
+          const handleLogout = () => {
+            setLoggedInUser(null);
+          };
+
+          if (!loggedInUser) {
+            return <LoginScreen onLogin={setLoggedInUser} />;
+          }
+
+          const openDetail = (c) => setSelected(c);
+          const closeDetail = () => setSelected(null);
+
+          const upsertCustomer = (updated) => {
+            setCustomers((prev) => {
+              const idx = prev.findIndex((p) => p.id === updated.id);
+              const next = [...prev];
+              const customerWithTimestamp = { ...updated, updatedAt: new Date().toISOString() };
+              if (idx >= 0) {
+                next[idx] = customerWithTimestamp;
+              } else {
+                next.unshift(customerWithTimestamp);
+              }
+              if (selected && selected.id === updated.id) {
+                setSelected(customerWithTimestamp);
+              }
+              return next;
+            });
+          };
+
+          const addCustomer = (partial) => {
+            const now = new Date().toISOString();
+            const newC = {
+              id: "CUST-" + Math.random().toString(36).slice(2, 8).toUpperCase(),
+              cif: partial.cif || genCIF(),
+              name: partial.name || "New Customer",
+              dob: partial.dob || "1990-01-01",
+              phone: partial.phone || "9XXXXXXXXX",
+              email: partial.email || "demo@tcbank.example",
+              pan: partial.pan || "ABCDE1234F",
+              aadhaar: partial.aadhaar || "XXXXXXXXXXXX",
+              address: partial.address || {
+                line1: "",
+                line2: "",
+                city: "",
+                state: "",
+                pincode: "",
+              },
+              products: partial.products || ["Savings"],
+              kyc: partial.kyc || defaultKYC(),
+              risk: partial.risk || "low",
+              branch: partial.branch || "Bengaluru MG Road",
+              rm: partial.rm || "Priya Nair",
+              createdAt: now,
+              updatedAt: now,
+              notes: [],
+              activity: [
+                { t: now, by: "System", what: "Customer created" },
+              ],
+              documents: [],
+            };
+            upsertCustomer(newC);
+            setSelected(newC);
+          };
+
+          const runEKYC = (c) => {
+            const now = new Date().toISOString();
+            const updated = {
+              ...c,
+              kyc: {
+                ...c.kyc,
+                panVerified: true,
+                aadhaarVerified: true,
+                photoCaptured: true,
+                signatureCaptured: true,
+                ipvDone: true,
+                fatcaDecl: true,
+                pep: false,
+                ckycNo: c.kyc.ckycNo || genCKYC(),
+                status: "verified",
+                lastCheckedAt: now,
+              },
+              activity: [
+                { t: now, by: "eKYC Bot", what: "eKYC checks simulated and verified" },
+                ...c.activity,
+              ],
+            };
+            upsertCustomer(updated);
+          };
+
+          return (
+            <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans">
+              <header className="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/70 border-b border-neutral-800">
+                <div className="mx-auto max-w-7xl px-4 py-3 flex items-center gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 flex items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 font-bold">
+                      <span>TC</span>
+                    </div>
+                    <div className="text-xl font-semibold tracking-wide">TCBank</div>
+                  </div>
+                  <nav className="ml-auto flex items-center gap-2">
+                    <TopTab label="Dashboard" active={view === "dashboard"} onClick={() => setView("dashboard")} />
+                    <TopTab label="Customers" active={view === "customers"} onClick={() => setView("customers")} />
+                    <TopTab label="Customer IDs" active={view === "ids"} onClick={() => setView("ids")} />
+                  </nav>
+                   <div className="ml-4 pl-4 border-l border-neutral-700 text-sm">
+                        <div>{loggedInUser.name}</div>
+                        <div className="text-xs text-neutral-400">{loggedInUser.role}</div>
+                    </div>
+                    <SecondaryButton onClick={handleLogout}>Logout</SecondaryButton>
+                </div>
+              </header>
+
+              <main className="mx-auto max-w-7xl px-4 py-6 space-y-6">
+                {view === "dashboard" && (
+                  <section className="space-y-6">
+                    <h1 className="text-2xl font-semibold">Branch Staff Console</h1>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <StatCard title="Total Customers" value={stats.total} sub="All records" />
+                      <StatCard title="KYC Verified" value={stats.verified} sub="Completed eKYC" />
+                      <StatCard title="KYC Pending" value={stats.pending} sub="Action required" />
+                      <StatCard title="High Risk" value={stats.highRisk} sub="Enhanced due diligence" />
+                    </div>
+                    <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4">
+                      <h2 className="text-lg font-medium mb-3">Quick Actions</h2>
+                      <div className="flex flex-wrap gap-2">
+                        <PrimaryButton onClick={() => setView("customers")}>Open Customer Directory</PrimaryButton>
+                        <SecondaryButton onClick={() => setShowNew(true)}>Add New Customer</SecondaryButton>
+                        <SecondaryButton onClick={() => setView("ids")}>View Customer IDs</SecondaryButton>
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                {view === "customers" && (
+                  <section className="space-y-4">
+                    <div className="flex flex-col md:flex-row gap-3 md:items-center">
+                      <div className="text-xl font-semibold">Customer Directory</div>
+                      <div className="md:ml-auto flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                        <input
+                          className="w-full md:w-80 rounded-2xl bg-neutral-900/60 border border-neutral-800 px-4 py-3 outline-none focus:ring-2 focus:ring-cyan-500"
+                          placeholder="Search name, CIF, phone, PAN, branch..."
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                        />
+                        <Select
+                          label="KYC"
+                          value={filters.status}
+                          onChange={(v) => setFilters((f) => ({ ...f, status: v }))}
+                          options={[
+                            { label: "All", value: "all" },
+                            { label: "Verified", value: "verified" },
+                            { label: "Pending", value: "pending" },
+                            { label: "Rejected", value: "rejected" },
+                          ]}
+                        />
+                        <Select
+                          label="Risk"
+                          value={filters.risk}
+                          onChange={(v) => setFilters((f) => ({ ...f, risk: v }))}
+                          options={[
+                            { label: "All", value: "all" },
+                            { label: "Low", value: "low" },
+                            { label: "Medium", value: "medium" },
+                            { label: "High", value: "high" },
+                          ]}
+                        />
+                        <Select
+                          label="Sort"
+                          value={`${sort.key}:${sort.dir}`}
+                          onChange={(v) => {
+                            const [key, dir] = v.split(":");
+                            setSort({ key: key, dir: dir });
+                          }}
+                          options={[
+                            { label: "Recently Updated", value: "updatedAt:desc" },
+                            { label: "Name A→Z", value: "name:asc" },
+                            { label: "Name Z→A", value: "name:desc" },
+                            { label: "Risk High→Low", value: "risk:desc" },
+                          ]}
+                        />
+                        <PrimaryButton onClick={() => setShowNew(true)}>New</PrimaryButton>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-neutral-800 overflow-x-auto">
+                      <table className="w-full text-sm min-w-[1024px]">
+                        <thead className="bg-neutral-900/60 text-neutral-300">
+                          <tr>
+                            <Th label="Name" />
+                            <Th label="CIF" />
+                            <Th label="KYC" />
+                            <Th label="Risk" />
+                            <Th label="Branch / RM" />
+                            <Th label="Products" />
+                            <Th label="Updated" />
+                            <th className="p-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((c) => (
+                            <tr key={c.id} className="border-t border-neutral-800 hover:bg-neutral-900/50">
+                              <td className="p-3">
+                                <div className="font-medium">{c.name}</div>
+                                <div className="text-xs text-neutral-400">{c.phone} · {c.email}</div>
+                              </td>
+                              <td className="p-3">
+                                <div className="font-mono text-xs bg-neutral-900/60 rounded px-2 py-1 inline-block">{c.cif}</div>
+                              </td>
+                              <td className="p-3">
+                                <KycBadge status={c.kyc.status} />
+                              </td>
+                              <td className="p-3">
+                                <RiskBadge risk={c.risk} />
+                              </td>
+                              <td className="p-3">
+                                <div>{c.branch}</div>
+                                <div className="text-xs text-neutral-400">RM: {c.rm}</div>
+                              </td>
+                              <td className="p-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {c.products.map((p) => (
+                                    <span key={p} className="text-xs bg-neutral-800 rounded-full px-2 py-1">{p}</span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="p-3 text-xs text-neutral-400">{formatWhen(c.updatedAt)}</td>
+                              <td className="p-3 text-right">
+                                <PrimaryButton onClick={() => openDetail(c)}>Open</PrimaryButton>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                )}
+
+                {view === "ids" && (
+                  <section className="space-y-4">
+                    <div className="flex items-center">
+                      <h2 className="text-xl font-semibold">Customer IDs</h2>
+                    </div>
+                    <div className="rounded-2xl border border-neutral-800 overflow-x-auto">
+                      <table className="w-full text-sm min-w-[1024px]">
+                        <thead className="bg-neutral-900/60 text-neutral-300">
+                          <tr>
+                            <Th label="Name" />
+                            <Th label="CIF" />
+                            <Th label="CKYC" />
+                            <Th label="PAN" />
+                            <Th label="Aadhaar Last 4" />
+                            <Th label="DOB" />
+                            <Th label="KYC" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {customers.map((c) => (
+                            <tr key={c.id} className="border-t border-neutral-800 hover:bg-neutral-900/50">
+                              <td className="p-3">{c.name}</td>
+                              <td className="p-3 font-mono text-xs">{c.cif}</td>
+                              <td className="p-3 font-mono text-xs">{c.kyc.ckycNo || "—"}</td>
+                              <td className="p-3 font-mono text-xs">{maskPAN(c.pan)}</td>
+                              <td className="p-3 font-mono text-xs">{(c.aadhaar || "").slice(-4) || "—"}</td>
+                              <td className="p-3">{c.dob}</td>
+                              <td className="p-3"><KycBadge status={c.kyc.status} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                )}
+              </main>
+
+              {showNew && (
+                <Modal title="New Customer" onClose={() => setShowNew(false)}>
+                  <NewCustomerForm
+                    onCreate={(data) => {
+                      addCustomer(data);
+                      setShowNew(false);
+                    }}
+                  />
+                </Modal>
+              )}
+
+              {selected && (
+                <Drawer onClose={closeDetail}>
+                  <CustomerDetail c={selected} onChange={upsertCustomer} onRunEKYC={runEKYC} />
+                </Drawer>
+              )}
+
+              <footer className="py-8 text-center text-xs text-neutral-500">
+                © {new Date().getFullYear()} TCBank — Demo app for branch/customer interaction & KYC
+              </footer>
+            </div>
+          );
+        }
+
+        /* --------------------------- Components --------------------------- */
+        function TopTab({ label, active, onClick }) {
+          return (
+            <button
+              className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
+                active ? "bg-neutral-800 text-white" : "text-neutral-300 hover:bg-neutral-800/60"
+              }`}
+              onClick={onClick}
+            >
+              {label}
+            </button>
+          );
+        }
+
+        function StatCard({ title, value, sub }) {
+          return (
+            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4">
+              <div className="text-sm text-neutral-400">{title}</div>
+              <div className="text-3xl font-semibold mt-1">{value}</div>
+              {sub && <div className="text-xs text-neutral-500 mt-1">{sub}</div>}
+            </div>
+          );
+        }
+
+        function Th({ label }) {
+          return <th className="p-3 text-left text-xs uppercase tracking-wider">{label}</th>;
+        }
+
+        function KycBadge({ status }) {
+          const map = {
+            verified: "bg-green-600/20 text-green-300 border-green-700/40",
+            pending: "bg-yellow-600/20 text-yellow-300 border-yellow-700/40",
+            rejected: "bg-red-600/20 text-red-300 border-red-700/40",
+          };
+          const label = status[0].toUpperCase() + status.slice(1);
+          return <span className={`text-xs border font-medium ${map[status]} rounded-full px-2 py-1`}>{label}</span>;
+        }
+
+        function RiskBadge({ risk }) {
+          const map = {
+            low: "bg-emerald-600/20 text-emerald-300 border-emerald-700/40",
+            medium: "bg-orange-600/20 text-orange-300 border-orange-700/40",
+            high: "bg-rose-600/20 text-rose-300 border-rose-700/40",
+          };
+          const label = risk[0].toUpperCase() + risk.slice(1);
+          return <span className={`text-xs border font-medium ${map[risk]} rounded-full px-2 py-1`}>{label}</span>;
+        }
+
+        function Select({ label, value, onChange, options }) {
+          return (
+            <label className="flex items-center gap-2 bg-neutral-900/60 border border-neutral-800 rounded-2xl px-3 py-2 h-full">
+              <span className="text-xs text-neutral-400">{label}</span>
+              <select className="bg-transparent outline-none appearance-none text-white" value={value} onChange={(e) => onChange(e.target.value)}>
+                {options.map(o => <option key={o.value} value={o.value} className="bg-neutral-900">{o.label}</option>)}
+              </select>
+            </label>
+          );
+        }
+
+        function PrimaryButton({ children, onClick, type, fullWidth }) {
+          return (
+            <button
+              type={type || "button"}
+              onClick={onClick}
+              className={`px-4 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-medium hover:opacity-90 active:scale-[0.99] transition-transform ${fullWidth ? 'w-full' : ''}`}
+            >
+              {children}
+            </button>
+          );
+        }
+        function SecondaryButton({ children, onClick, type }) {
+          return (
+            <button
+              type={type || "button"}
+              onClick={onClick}
+              className="px-4 py-2 rounded-2xl border border-neutral-700 bg-neutral-900/60 text-white hover:bg-neutral-800 transition-colors"
+            >
+              {children}
+            </button>
+          );
+        }
+
+        function Modal({ title, onClose, children }) {
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 shadow-2xl">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+                  <div className="font-medium">{title}</div>
+                  <button className="text-neutral-400 hover:text-white" onClick={onClose}>✕</button>
+                </div>
+                <div className="p-4">{children}</div>
+              </div>
+            </div>
+          );
+        }
+
+        function Drawer({ onClose, children }) {
+          return (
+            <div className="fixed inset-0 z-50 flex">
+              <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+              <div className="w-full max-w-3xl h-full overflow-y-auto bg-neutral-950 border-l border-neutral-800 p-4">
+                <div className="flex justify-end mb-2"><button className="text-neutral-400 hover:text-white text-2xl" onClick={onClose}>✕</button></div>
+                {children}
+              </div>
+            </div>
+          );
+        }
+
+        function Section({ title, children, right }) {
+          return (
+            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/40 p-4">
+              <div className="flex items-center mb-3">
+                <h3 className="text-lg font-medium flex-1">{title}</h3>
+                {right}
+              </div>
+              {children}
+            </div>
+          );
+        }
+
+        function CustomerDetail({ c, onChange, onRunEKYC }) {
+          const [tab, setTab] = useState("overview");
+          const [editingAddress, setEditingAddress] = useState(false);
+          const [addingDoc, setAddingDoc] = useState(false);
+          const [addingNote, setAddingNote] = useState(false);
+
+          return (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div>
+                  <div className="text-2xl font-semibold">{c.name}</div>
+                  <div className="text-sm text-neutral-400">CIF <span className="font-mono">{c.cif}</span> · {c.branch} · RM {c.rm}</div>
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                  <KycBadge status={c.kyc.status} />
+                  <RiskBadge risk={c.risk} />
+                  <PrimaryButton onClick={() => onRunEKYC(c)}>Start eKYC</PrimaryButton>
+                </div>
+              </div>
+
+              <div className="flex gap-2 border-b border-neutral-800">
+                {[
+                  { k: "overview", t: "Overview" },
+                  { k: "kyc", t: "KYC" },
+                  { k: "docs", t: "Documents" },
+                  { k: "notes", t: "Notes & Tasks" },
+                  { k: "activity", t: "Activity" },
+                ].map((t) => (
+                  <button key={t.k} className={`px-3 py-2 text-sm font-medium border-b-2 ${tab === t.k ? "border-cyan-500 text-white" : "border-transparent text-neutral-400 hover:text-white"}`} onClick={() => setTab(t.k)}>{t.t}</button>
+                ))}
+              </div>
+
+              {tab === "overview" && (
+                <div className="grid md:grid-cols-2 gap-4">
+                  <Section title="Profile">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <LabelValue label="Name" value={c.name} />
+                      <LabelValue label="DOB" value={c.dob} />
+                      <LabelValue label="Phone" value={c.phone} />
+                      <LabelValue label="Email" value={c.email} />
+                      <LabelValue label="PAN" value={maskPAN(c.pan)} />
+                      <LabelValue label="Aadhaar Last 4" value={(c.aadhaar || "").slice(-4)} />
+                    </div>
+                  </Section>
+                  <Section title="Banking">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <LabelValue label="Products" value={c.products.join(", ")} />
+                      <LabelValue label="Risk" value={cap(c.risk)} />
+                      <LabelValue label="KYC Status" value={cap(c.kyc.status)} />
+                      <LabelValue label="CKYC" value={c.kyc.ckycNo || "—"} />
+                    </div>
+                  </Section>
+                  <Section title="Address" right={<SecondaryButton onClick={() => setEditingAddress(true)}>Edit</SecondaryButton>}>
+                    <div className="text-sm leading-relaxed">
+                      {[c.address.line1, c.address.line2, `${c.address.city} ${c.address.state} ${c.address.pincode}`]
+                        .filter(Boolean)
+                        .map((l, i) => <div key={i}>{l}</div>)
+                      }
+                    </div>
+                  </Section>
+                  <Section title="Relationship">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <LabelValue label="Branch" value={c.branch} />
+                      <LabelValue label="RM" value={c.rm} />
+                      <LabelValue label="Created" value={formatWhen(c.createdAt)} />
+                      <LabelValue label="Updated" value={formatWhen(c.updatedAt)} />
+                    </div>
+                  </Section>
+                </div>
+              )}
+
+              {tab === "kyc" && (
+                <Section title="KYC Checklist" right={<SecondaryButton onClick={() => onRunEKYC(c)}>Auto-Complete (Demo)</SecondaryButton>}>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <KycItem label="PAN Verified" checked={c.kyc.panVerified} onToggle={() => onChange(toggleKYC(c, "panVerified"))} />
+                    <KycItem label="Aadhaar Verified" checked={c.kyc.aadhaarVerified} onToggle={() => onChange(toggleKYC(c, "aadhaarVerified"))} />
+                    <KycItem label="Photo Captured" checked={c.kyc.photoCaptured} onToggle={() => onChange(toggleKYC(c, "photoCaptured"))} />
+                    <KycItem label="Signature Captured" checked={c.kyc.signatureCaptured} onToggle={() => onChange(toggleKYC(c, "signatureCaptured"))} />
+                    <KycItem label="In-Person Verification (IPV)" checked={c.kyc.ipvDone} onToggle={() => onChange(toggleKYC(c, "ipvDone"))} />
+                    <KycItem label="FATCA Declaration" checked={c.kyc.fatcaDecl} onToggle={() => onChange(toggleKYC(c, "fatcaDecl"))} />
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-neutral-300">PEP</label>
+                      <input type="checkbox" checked={c.kyc.pep} onChange={(e) => onChange(setKYC(c, { pep: e.target.checked }))} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-neutral-300">CKYC No.</label>
+                      <input className="flex-1 bg-neutral-900/60 border border-neutral-800 rounded-xl px-3 py-2" value={c.kyc.ckycNo || ""} onChange={(e) => onChange(setKYC(c, { ckycNo: e.target.value }))} placeholder="e.g., 1234 5678 9012" />
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <PrimaryButton onClick={() => onRunEKYC(c)}>Run eKYC Checks</PrimaryButton>
+                    <SecondaryButton onClick={() => onChange(setKYC(c, { status: "pending" }))}>Mark Pending</SecondaryButton>
+                    <SecondaryButton onClick={() => onChange(setKYC(c, { status: "rejected" }))}>Reject</SecondaryButton>
+                    <SecondaryButton onClick={() => onChange(setKYC(c, { status: "verified" }))}>Approve</SecondaryButton>
+                  </div>
+                </Section>
+              )}
+
+              {tab === "docs" && (
+                <Section title="Documents" right={<SecondaryButton onClick={() => setAddingDoc(true)}>Add Document</SecondaryButton>}>
+                  <div className="text-sm">
+                    {c.documents.length === 0 && <div className="text-neutral-400">No documents uploaded yet in this demo. Use “Add Document” to simulate.</div>}
+                    <ul className="space-y-2">
+                      {c.documents.map((d) => (
+                        <li key={d.id} className="flex items-center justify-between bg-neutral-900/60 border border-neutral-800 rounded-xl px-3 py-2">
+                          <div>
+                            <div className="font-medium">{d.label}</div>
+                            <div className="text-xs text-neutral-400">{d.fileName} · {formatWhen(d.when)}</div>
+                          </div>
+                          <button className="text-xs text-rose-300" onClick={() => onChange({ ...c, documents: c.documents.filter(x => x.id !== d.id) })}>Delete</button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </Section>
+              )}
+
+              {tab === "notes" && (
+                <Section title="Notes & Tasks" right={<SecondaryButton onClick={() => setAddingNote(true)}>New</SecondaryButton>}>
+                  <ul className="space-y-2">
+                    {c.notes.map((n) => (
+                      <li key={n.id} className="flex items-center gap-3 bg-neutral-900/60 border border-neutral-800 rounded-xl px-3 py-2">
+                        <input type="checkbox" checked={n.done} onChange={(e) => {
+                          const now = new Date().toISOString();
+                          onChange({ ...c, notes: c.notes.map(x => x.id === n.id ? { ...x, done: e.target.checked } : x), activity: [{ t: now, by: "RM", what: `Task ${e.target.checked ? "completed" : "updated"}: ${n.text}` }, ...c.activity] })
+                        }} />
+                        <span className={`flex-1 ${n.done ? "line-through text-neutral-500" : ""}`}>{n.text}</span>
+                        <button className="text-xs text-rose-300" onClick={() => onChange({ ...c, notes: c.notes.filter(x => x.id !== n.id) })}>Delete</button>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+
+              {tab === "activity" && (
+                <Section title="Activity Log">
+                  <ul className="text-sm space-y-2">
+                    {c.activity.map((a, i) => (
+                      <li key={i} className="flex items-start gap-3">
+                        <span className="mt-1 text-cyan-500">•</span>
+                        <div>
+                          <div className="font-medium">{a.what}</div>
+                          <div className="text-xs text-neutral-400">{formatWhen(a.t)} — {a.by}</div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+
+              {editingAddress && (
+                <EditAddressModal
+                  address={c.address}
+                  onClose={() => setEditingAddress(false)}
+                  onSave={(newAddress) => {
+                    onChange({ ...c, address: newAddress });
+                    setEditingAddress(false);
+                  }}
+                />
+              )}
+              {addingDoc && (
+                <AddDocumentModal
+                    onClose={() => setAddingDoc(false)}
+                    onAdd={(label) => {
+                        const now = new Date().toISOString();
+                        onChange({ ...c, documents: [{ id: now, label, fileName: "uploaded.pdf", when: now }, ...c.documents ]});
+                        setAddingDoc(false);
+                    }}
+                />
+              )}
+              {addingNote && (
+                <AddNoteModal
+                    onClose={() => setAddingNote(false)}
+                    onAdd={(text) => {
+                        const it = { id: Math.random().toString(36).slice(2), text, done: false };
+                        const now = new Date().toISOString();
+                        onChange({ ...c, notes: [it, ...c.notes], activity: [{ t: now, by: "RM", what: `Note added: ${text}` }, ...c.activity] });
+                        setAddingNote(false);
+                    }}
+                />
+              )}
+            </div>
+          );
+        }
+
+        function KycItem({ label, checked, onToggle }) {
+          return (
+            <label className="flex items-center gap-2 bg-neutral-900/60 border border-neutral-800 rounded-xl px-3 py-2 cursor-pointer hover:bg-neutral-800">
+              <input type="checkbox" checked={!!checked} onChange={onToggle} className="h-4 w-4 rounded text-cyan-500 bg-neutral-700 border-neutral-600 focus:ring-cyan-500" />
+              <span className="text-sm">{label}</span>
+            </label>
+          );
+        }
+
+        function LabelValue({ label, value }) {
+          return (
+            <div>
+              <div className="text-xs text-neutral-400">{label}</div>
+              <div className="font-medium">{value || "—"}</div>
+            </div>
+          );
+        }
+
+        function NewCustomerForm({ onCreate }) {
+          const [form, setForm] = useState({
+            name: "",
+            dob: "",
+            phone: "",
+            email: "",
+            pan: "",
+            aadhaar: "",
+            branch: "Bengaluru MG Road",
+            rm: "Priya Nair",
+            risk: "low",
+            products: "Savings, UPI",
+          });
+
+          const handleChange = (e) => {
+            const { name, value } = e.target;
+            setForm(prev => ({ ...prev, [name]: value }));
+          };
+
+          const handleSubmit = (e) => {
+            e.preventDefault();
+            onCreate({
+              ...form,
+              name: form.name || "New Customer",
+              dob: form.dob || "1990-01-01",
+              phone: form.phone || "9XXXXXXXXX",
+              email: form.email || "demo@tcbank.example",
+              pan: form.pan || "ABCDE1234F",
+              aadhaar: form.aadhaar || "XXXXXXXXXXXX",
+              products: String(form.products).split(",").map((s) => s.trim()).filter(Boolean),
+              kyc: defaultKYC(),
+            });
+          };
+
+          return (
+            <form className="space-y-3" onSubmit={handleSubmit}>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {[
+                  { label: "Full Name", key: "name" },
+                  { label: "DOB (YYYY-MM-DD)", key: "dob" },
+                  { label: "Phone", key: "phone" },
+                  { label: "Email", key: "email" },
+                  { label: "PAN", key: "pan" },
+                  { label: "Aadhaar", key: "aadhaar" },
+                  { label: "Branch", key: "branch" },
+                  { label: "Relationship Manager", key: "rm" },
+                  { label: "Risk (low/medium/high)", key: "risk" },
+                  { label: "Products (comma separated)", key: "products" },
+                ].map(({ label, key }) => (
+                  <label key={key} className="text-sm">
+                    <div className="text-neutral-300 mb-1">{label}</div>
+                    <input
+                      className="w-full bg-neutral-900/60 border border-neutral-800 rounded-xl px-3 py-2"
+                      name={key}
+                      value={form[key]}
+                      onChange={handleChange}
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <SecondaryButton type="button" onClick={() => onCreate({})}>Quick Add</SecondaryButton>
+                <PrimaryButton type="submit">Create</PrimaryButton>
+              </div>
+            </form>
+          );
+        }
+
+        function EditAddressModal({ address, onClose, onSave }) {
+            const [form, setForm] = useState(address);
+            const handleChange = (e) => {
+                setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+            };
+            return (
+                <Modal title="Edit Address" onClose={onClose}>
+                    <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-3">
+                        <div className="grid sm:grid-cols-2 gap-3">
+                            <FormInput label="Line 1" name="line1" value={form.line1} onChange={handleChange} />
+                            <FormInput label="Line 2" name="line2" value={form.line2} onChange={handleChange} />
+                            <FormInput label="City" name="city" value={form.city} onChange={handleChange} />
+                            <FormInput label="State" name="state" value={form.state} onChange={handleChange} />
+                            <FormInput label="PIN Code" name="pincode" value={form.pincode} onChange={handleChange} />
+                        </div>
+                        <div className="flex justify-end pt-2"><PrimaryButton type="submit">Save</PrimaryButton></div>
+                    </form>
+                </Modal>
+            );
+        }
+
+        function AddDocumentModal({ onClose, onAdd }) {
+            const [label, setLabel] = useState("");
+            return (
+                <Modal title="Add Document" onClose={onClose}>
+                    <form onSubmit={(e) => { e.preventDefault(); if (label) onAdd(label); }} className="space-y-3">
+                        <FormInput label="Document Label (e.g., PAN, Address Proof)" name="label" value={label} onChange={(e) => setLabel(e.target.value)} />
+                        <div className="flex justify-end pt-2"><PrimaryButton type="submit">Add</PrimaryButton></div>
+                    </form>
+                </Modal>
+            );
+        }
+
+        function AddNoteModal({ onClose, onAdd }) {
+            const [text, setText] = useState("");
+            return (
+                <Modal title="Add Note or Task" onClose={onClose}>
+                    <form onSubmit={(e) => { e.preventDefault(); if (text) onAdd(text); }} className="space-y-3">
+                        <FormInput label="Note / Task" name="text" value={text} onChange={(e) => setText(e.target.value)} />
+                        <div className="flex justify-end pt-2"><PrimaryButton type="submit">Add</PrimaryButton></div>
+                    </form>
+                </Modal>
+            );
+        }
+
+        function FormInput({ label, ...props }) {
+            return (
+                <label className="text-sm w-full">
+                    <div className="text-neutral-300 mb-1">{label}</div>
+                    <input
+                        className="w-full bg-neutral-900/60 border border-neutral-800 rounded-xl px-3 py-2"
+                        {...props}
+                    />
+                </label>
+            );
+        }
+
+
+        /* --------------------------- Utilities --------------------------- */
+        function useLocalStorage(key, initial) {
+          const [state, setState] = useState(() => {
+            try {
+              const raw = localStorage.getItem(key);
+              return raw ? JSON.parse(raw) : initial;
+            } catch {
+              return initial;
+            }
+          });
+          useEffect(() => {
+            try { localStorage.setItem(key, JSON.stringify(state)); } catch { }
+          }, [key, state]);
+          return [state, setState];
+        }
+
+        function compare(a, b, key, dir) {
+          let av = a[key];
+          let bv = b[key];
+          if (key === "risk") {
+            const order = { low: 1, medium: 2, high: 3 };
+            av = order[a.risk];
+            bv = order[b.risk];
+          }
+          if (typeof av === "string" && typeof bv === "string") {
+            const res = av.localeCompare(bv);
+            return dir === "asc" ? res : -res;
+          }
+          const res = av > bv ? 1 : av < bv ? -1 : 0;
+          return dir === "asc" ? res : -res;
+        }
+
+        function formatWhen(iso) {
+          if (!iso) return "—";
+          const d = new Date(iso);
+          const now = new Date();
+          const diff = (now.getTime() - d.getTime()) / 1000;
+          if (diff < 60) return "just now";
+          if (diff < 3600) return Math.floor(diff / 60) + " min ago";
+          if (diff < 86400) return Math.floor(diff / 3600) + " hr ago";
+          return d.toLocaleDateString();
+        }
+
+        function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+        function maskPAN(pan) { return pan ? pan.slice(0, 5) + "•••" + pan.slice(-1) : "—"; }
+
+        function genCIF() { return "CIF" + Math.floor(100000000 + Math.random() * 900000000); }
+        function genCKYC() { return String(Math.floor(100000000000 + Math.random() * 900000000000)); }
+
+        function defaultKYC() {
+          return {
+            status: "pending",
+            panVerified: false,
+            aadhaarVerified: false,
+            photoCaptured: false,
+            signatureCaptured: false,
+            ipvDone: false,
+            fatcaDecl: false,
+            pep: false,
+            ckycNo: "",
+          };
+        }
+
+        function toggleKYC(c, key) {
+          return setKYC(c, { [key]: !c.kyc[key] });
+        }
+        function setKYC(c, patch) {
+          const now = new Date().toISOString();
+          return {
+            ...c,
+            kyc: {
+              ...c.kyc,
+              ...patch,
+              lastCheckedAt: now,
+              status: patch.status || c.kyc.status,
+            },
+            activity: [{ t: now, by: "RM", what: `KYC updated: ${Object.keys(patch).join(", ")}` }, ...c.activity],
+          };
+        }
+
+        function seedCustomers() {
+          const now = new Date();
+          const daysAgo = (n) => new Date(now.getTime() - n * 86400000).toISOString();
+          return [
+            {
+              id: "CUST-A1",
+              cif: genCIF(),
+              name: "Rohit Sharma",
+              dob: "1987-04-30",
+              phone: "+91 98XXXXXX10",
+              email: "rohit.sharma@sample.in",
+              pan: "FNSPS1234K",
+              aadhaar: "XXXX XXXX 1234",
+              address: { line1: "12, Palm Meadows", line2: "", city: "Mumbai", state: "MH", pincode: "400001" },
+              products: ["Savings", "FD", "UPI"],
+              kyc: { ...defaultKYC(), status: "verified", panVerified: true, aadhaarVerified: true, photoCaptured: true, signatureCaptured: true, ipvDone: true, fatcaDecl: true, ckycNo: genCKYC(), lastCheckedAt: daysAgo(2) },
+              risk: "low",
+              branch: "Mumbai Fort",
+              rm: "Anita Rao",
+              createdAt: daysAgo(120),
+              updatedAt: daysAgo(2),
+              notes: [{ id: "n1", text: "Offer credit card upgrade", done: false }],
+              activity: [{ t: daysAgo(2), by: "System", what: "KYC verified" }],
+              documents: [{ id: "d1", label: "PAN", fileName: "pan.pdf", when: daysAgo(5) }],
+            },
+            {
+              id: "CUST-A2",
+              cif: genCIF(),
+              name: "Priya Verma",
+              dob: "1992-11-12",
+              phone: "+91 98XXXXXX22",
+              email: "priya.verma@sample.in",
+              pan: "ALWPG6789Q",
+              aadhaar: "XXXX XXXX 4567",
+              address: { line1: "A-55, Indira Nagar", line2: "", city: "Lucknow", state: "UP", pincode: "226016" },
+              products: ["Savings", "RD"],
+              kyc: { ...defaultKYC(), status: "pending" },
+              risk: "medium",
+              branch: "Lucknow Hazratganj",
+              rm: "Kunal Singh",
+              createdAt: daysAgo(40),
+              updatedAt: daysAgo(7),
+              notes: [],
+              activity: [{ t: daysAgo(7), by: "RM", what: "Requested IPV scheduling" }],
+              documents: [],
+            },
+            {
+              id: "CUST-A3",
+              cif: genCIF(),
+              name: "Aisha Khan",
+              dob: "1989-06-21",
+              phone: "+91 97XXXXXX33",
+              email: "aisha.khan@sample.in",
+              pan: "BTYPA3456D",
+              aadhaar: "XXXX XXXX 7890",
+              address: { line1: "H-9, BTM Layout", line2: "", city: "Bengaluru", state: "KA", pincode: "560076" },
+              products: ["Savings", "UPI", "Forex"],
+              kyc: { ...defaultKYC(), status: "verified", panVerified: true, aadhaarVerified: true, photoCaptured: true, signatureCaptured: true, ipvDone: true, fatcaDecl: true, ckycNo: genCKYC(), lastCheckedAt: daysAgo(10) },
+              risk: "medium",
+              branch: "Bengaluru MG Road",
+              rm: "Priya Nair",
+              createdAt: daysAgo(365),
+              updatedAt: daysAgo(1),
+              notes: [{ id: "n2", text: "Cross-sell NRO account", done: false }],
+              activity: [{ t: daysAgo(1), by: "System", what: "FD matured" }],
+              documents: [{ id: "d2", label: "Aadhaar", fileName: "aadhaar.pdf", when: daysAgo(11) }],
+            },
+            {
+              id: "CUST-A4",
+              cif: genCIF(),
+              name: "Sandeep Mehta",
+              dob: "1979-02-10",
+              phone: "+91 96XXXXXX44",
+              email: "sandeep.mehta@sample.in",
+              pan: "DJPAM9876L",
+              aadhaar: "XXXX XXXX 1122",
+              address: { line1: "202, Silver Oaks", line2: "", city: "Jaipur", state: "RJ", pincode: "302001" },
+              products: ["Current", "POS", "UPI"],
+              kyc: { ...defaultKYC(), status: "rejected", panVerified: false, aadhaarVerified: false },
+              risk: "high",
+              branch: "Jaipur MI Road",
+              rm: "Ritika Bhatt",
+              createdAt: daysAgo(12),
+              updatedAt: daysAgo(3),
+              notes: [],
+              activity: [{ t: daysAgo(3), by: "Compliance", what: "KYC rejected: address mismatch" }],
+              documents: [],
+            },
+            {
+              id: "CUST-A5",
+              cif: genCIF(),
+              name: "Meera Iyer",
+              dob: "1995-08-05",
+              phone: "+91 95XXXXXX55",
+              email: "meera.iyer@sample.in",
+              pan: "CFHPM2345N",
+              aadhaar: "XXXX XXXX 3344",
+              address: { line1: "Lakeside Residency", line2: "", city: "Chennai", state: "TN", pincode: "600018" },
+              products: ["Savings", "Credit Card"],
+              kyc: { ...defaultKYC(), status: "pending" },
+              risk: "low",
+              branch: "Chennai T Nagar",
+              rm: "Arun Kumar",
+              createdAt: daysAgo(25),
+              updatedAt: daysAgo(8),
+              notes: [],
+              activity: [{ t: daysAgo(8), by: "RM", what: "Collected documents" }],
+              documents: [],
+            },
+            {
+              id: "CUST-A6",
+              cif: genCIF(),
+              name: "Vikram Desai",
+              dob: "1983-12-19",
+              phone: "+91 94XXXXXX66",
+              email: "vikram.desai@sample.in",
+              pan: "GQWPD4567Z",
+              aadhaar: "XXXX XXXX 5566",
+              address: { line1: "Green Acres", line2: "", city: "Pune", state: "MH", pincode: "411001" },
+              products: ["Savings", "Home Loan"],
+              kyc: { ...defaultKYC(), status: "verified", panVerified: true, aadhaarVerified: true, photoCaptured: true, signatureCaptured: true, ipvDone: true, fatcaDecl: true, ckycNo: genCKYC(), lastCheckedAt: daysAgo(30) },
+              risk: "low",
+              branch: "Pune Camp",
+              rm: "Nidhi Kulkarni",
+              createdAt: daysAgo(420),
+              updatedAt: daysAgo(15),
+              notes: [],
+              activity: [{ t: daysAgo(15), by: "System", what: "Home loan disbursed" }],
+              documents: [],
+            },
+            {
+              id: "CUST-A7",
+              cif: genCIF(),
+              name: "Harshita Gupta",
+              dob: "1998-03-14",
+              phone: "+91 93XXXXXX77",
+              email: "harshita.gupta@sample.in",
+              pan: "IJOPL3456R",
+              aadhaar: "XXXX XXXX 7788",
+              address: { line1: "Skyline Towers", line2: "", city: "Delhi", state: "DL", pincode: "110001" },
+              products: ["Savings"],
+              kyc: { ...defaultKYC(), status: "pending" },
+              risk: "medium",
+              branch: "Delhi Connaught Place",
+              rm: "Manish Arora",
+              createdAt: daysAgo(5),
+              updatedAt: daysAgo(1),
+              notes: [],
+              activity: [{ t: daysAgo(1), by: "RM", what: "Email sent for FATCA" }],
+              documents: [],
+            },
+            {
+              id: "CUST-A8",
+              cif: genCIF(),
+              name: "Anil Kumar",
+              dob: "1975-09-02",
+              phone: "+91 92XXXXXX88",
+              email: "anil.kumar@sample.in",
+              pan: "MNZPK9876T",
+              aadhaar: "XXXX XXXX 9900",
+              address: { line1: "Sector 21", line2: "", city: "Gurugram", state: "HR", pincode: "122001" },
+              products: ["Current", "Trade"],
+              kyc: { ...defaultKYC(), status: "verified", panVerified: true, aadhaarVerified: true, photoCaptured: true, signatureCaptured: true, ipvDone: true, fatcaDecl: true, ckycNo: genCKYC(), lastCheckedAt: daysAgo(60) },
+              risk: "high",
+              branch: "Gurugram Cyber City",
+              rm: "Sonal Mehta",
+              createdAt: daysAgo(600),
+              updatedAt: daysAgo(20),
+              notes: [],
+              activity: [{ t: daysAgo(20), by: "Compliance", what: "EDD completed" }],
+              documents: [],
+            },
+          ];
+        }
+
+        // Render the App component to the DOM
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
